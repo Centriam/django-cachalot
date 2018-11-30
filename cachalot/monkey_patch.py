@@ -4,6 +4,7 @@ from __future__ import unicode_literals
 from collections import Iterable
 from time import time
 
+from django.core.exceptions import FieldError
 from django.db.backends.utils import CursorWrapper
 from django.db.models.query import EmptyResultSet
 from django.db.models.signals import post_migrate
@@ -20,7 +21,7 @@ from .utils import (
     _get_table_cache_keys, _get_tables_from_sql,
     UncachableQuery, is_cachable, filter_cachable,
 )
-
+from psycopg2.sql import Composable, SQL
 
 WRITE_COMPILERS = (SQLInsertCompiler, SQLUpdateCompiler, SQLDeleteCompiler)
 
@@ -77,7 +78,7 @@ def _patch_compiler(original):
         try:
             cache_key = cachalot_settings.CACHALOT_QUERY_KEYGEN(compiler)
             table_cache_keys = _get_table_cache_keys(compiler)
-        except (EmptyResultSet, UncachableQuery):
+        except (EmptyResultSet, UncachableQuery, FieldError):
             return execute_query_func()
 
         return _get_result_or_execute_query(
@@ -127,6 +128,10 @@ def _patch_cursor():
                 if getattr(connection, 'raw', True):
                     if isinstance(sql, binary_type):
                         sql = sql.decode('utf-8')
+                    elif isinstance(sql, SQL):
+                        sql = sql.string
+                    elif isinstance(sql, Composable):
+                        sql = sql.as_string(cursor.connection)
                     sql = sql.lower()
                     if 'update' in sql or 'insert' in sql or 'delete' in sql \
                             or 'alter' in sql or 'create' in sql \
